@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mcande21/thealgorithms-mcp",
+  "description": "Query TheAlgorithms/Python — search algorithm implementations and fetch them with their doctests as examples.",
+  "repository": {
+    "url": "https://github.com/mcande21/thealgorithms-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "thealgorithms-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
