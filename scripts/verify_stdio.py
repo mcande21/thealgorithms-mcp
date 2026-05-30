@@ -40,10 +40,14 @@ def payload(res):
 
 
 async def main() -> int:
-    params = StdioServerParameters(
-        command=sys.executable, args=["-m", "thealgorithms_mcp.server"]
-    )
-    print("Spawning server over stdio...")
+    # Default: run the local package. Override by passing a full command as argv,
+    # e.g. `verify_stdio.py uvx --from git+https://github.com/mcande21/thealgorithms-mcp thealgorithms-mcp`
+    if len(sys.argv) > 1:
+        command, args = sys.argv[1], sys.argv[2:]
+    else:
+        command, args = sys.executable, ["-m", "thealgorithms_mcp.server"]
+    params = StdioServerParameters(command=command, args=args)
+    print(f"Spawning server over stdio: {command} {' '.join(args)}")
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
