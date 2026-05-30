@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.mcande21/thealgorithms-mcp",
-  "description": "Query TheAlgorithms/Python — search algorithm implementations and fetch them with their doctests as examples.",
+  "description": "Search TheAlgorithms/Python and fetch implementations with their doctest examples.",
   "repository": {
     "url": "https://github.com/mcande21/thealgorithms-mcp",
     "source": "github"
