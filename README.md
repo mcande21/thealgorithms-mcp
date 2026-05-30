@@ -2,24 +2,36 @@
 
 mcp-name: io.github.mcande21/thealgorithms-mcp
 
-An [MCP](https://modelcontextprotocol.io) server for querying
-[TheAlgorithms/Python](https://github.com/TheAlgorithms/Python) — search ~1,160 algorithm
-implementations and fetch any one with its **doctests as usage examples**.
+An [MCP](https://modelcontextprotocol.io) server for querying the
+[TheAlgorithms](https://github.com/TheAlgorithms) org across **every language repo** — search
+algorithm implementations and fetch any one with its in-file examples.
 
-Hybrid design: the small `DIRECTORY.md` index is cached locally (ETag + 24h TTL) for instant
-fuzzy search; file contents are fetched on demand from `raw.githubusercontent.com`. No API token,
-no rate limits, tiny footprint. See [`DESIGN.md`](DESIGN.md).
+Languages are **auto-discovered** from the org (not a hardcoded list): a repo is indexed when it
+publishes a parseable `DIRECTORY.md` — currently **24 languages** (Python, Java, C++, JavaScript,
+Rust, C, TypeScript, PHP, Dart, Kotlin, Ruby, R, Scala, Swift, Julia, Haskell, MATLAB, Zig,
+Fortran, Nim, Clojure, F#, Jule, aarch64-assembly). Repos without a `DIRECTORY.md` (Go, C#, Lua,
+Solidity, …) are reported by `list_languages` with their exclusion reason — no silent gaps.
+
+Hybrid design: each repo's `DIRECTORY.md` index is cached locally (ETag + TTL); file contents are
+fetched on demand from `raw.githubusercontent.com`. The org/language manifest is auto-discovered via
+the GitHub API and cached 7 days. No token required (set `GITHUB_TOKEN` to raise the rate limit).
+See [`DESIGN.md`](DESIGN.md).
 
 ## Tools
 
 | Tool | Purpose |
 |------|---------|
-| `list_categories()` | Categories (sorts, graphs, dynamic_programming, …) with counts |
-| `search_algorithms(query, category?, limit=10)` | Ranked `{name, category, path, score}` |
-| `get_category(category)` | Every algorithm in a category |
-| `get_algorithm(path, include_source=True)` | Source + extracted doctests for one file |
+| `list_languages()` | Indexed languages (+ counts, aliases) and excluded repos with reasons |
+| `list_categories(language='python')` | Categories with entry counts for a language |
+| `search_algorithms(query, language='python', category?, limit=10)` | Ranked `{name, category, path, score}` |
+| `get_category(category, language='python')` | Every algorithm in a category |
+| `get_algorithm(path, language='python', include_source=True)` | Source + extracted examples |
+| `compare(name, languages?, limit_per_language=1)` | The same algorithm across languages |
 
-Typical flow: `search_algorithms("dijkstra")` → `get_algorithm("graphs/dijkstra.py")`.
+`language` accepts names or aliases (`cpp`/`c++`, `js`, `ts`, …). Typical flow:
+`search_algorithms("dijkstra", language="rust")` → `get_algorithm("src/graph/dijkstra.rs", language="rust")`.
+Examples are extracted where the language has an in-file convention (Python doctests, Rust
+doc-tests); other languages return source plus a note.
 
 ## Install
 
@@ -29,7 +41,7 @@ Typical flow: `search_algorithms("dijkstra")` → `get_algorithm("graphs/dijkstr
 { "thealgorithms": { "command": "uvx", "args": ["thealgorithms-mcp"] } }
 ```
 
-**From GitHub (no PyPI needed):**
+**From GitHub:**
 
 ```json
 { "thealgorithms": {
@@ -44,18 +56,14 @@ uv sync
 uv run thealgorithms-mcp          # serves over stdio
 ```
 
-```json
-{ "thealgorithms": {
-    "command": "uv",
-    "args": ["run", "--directory", "/path/to/thealgorithms-mcp", "thealgorithms-mcp"] } }
-```
-
 Add any of the above to `~/.normandy-generic/mcp.json` (or your MCP client config).
 
 ## Verify
 
 ```bash
-uv run python scripts/verify_stdio.py
+uv run python scripts/verify_stdio.py                 # multi-language contract over stdio
+uv run python scripts/verify_language.py rust         # one language, end-to-end
 ```
 
-Spawns the server over stdio and asserts every tool against the live repo.
+The harness spawns the server over stdio and asserts every tool against the live org, including
+binary-search fetch across ≥8 languages and cross-language `compare()`.

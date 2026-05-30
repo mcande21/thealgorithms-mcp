@@ -142,5 +142,49 @@ production rapidfuzz; urllib for httpx. All four load-bearing concepts passed:
 | 3 | `mode` enum is wrong-altitude for an LLM | **Accepted** — replaced with `include_source: bool`. |
 | 4 | Doctest extraction misses function/class docstrings | **Accepted (simplified)** — whole-source `>>>` scan; proven complete. |
 | 5 | `get_category` shouldn't be optional | **Accepted** — promoted to phase-1 core tool. |
+
+---
+
+## v0.2.0 — Multi-language (2026-05-30)
+
+Expanded from Python-only to **every TheAlgorithms repo with a parseable `DIRECTORY.md`** —
+**24 languages auto-discovered** (4,513 entries), not a hardcoded list.
+
+### How the language set is discovered
+`discovery.py` enumerates the org via the GitHub API (cached 7d; optional `GITHUB_TOKEN`), then
+INCLUDES a repo iff its `DIRECTORY.md` parses to ≥10 source entries with a dominant code extension.
+Everything else is recorded in `excluded` with a reason (no `DIRECTORY.md`: Go/C#/Lua/Solidity;
+too few entries: Jupyter; not a code repo: website/Algorithms-Explanation). `list_languages`
+surfaces both — **no silent gaps**.
+
+### The format problem (recon finding)
+A 25-repo parallel recon revealed the `DIRECTORY.md` dialect is **not** uniform — only Python/JS/PHP
+use repo-relative paths. `directory.py` normalizes all dialects:
+- absolute blob URLs (`https://github.com/.../blob/{ref}/<path>`) → `<path>` (Rust, C++, TS, …)
+- `./` prefixes (PHP); URL-encoded paths (MATLAB); non-`*` bullets + emoji icons (Java)
+- **category = the file's immediate parent directory** — uniform across languages, robust to
+  boilerplate nesting (Java's `src/main/java/com/thealgorithms/<cat>/`, Rust's `src/<cat>/`);
+  test files are dropped.
+
+### Tools
+All five original tools take a `language` param (default `python`, accepts aliases `cpp`/`c++`/`js`),
+plus `list_languages()` and cross-language `compare(name)`.
+
+### Examples (graceful degradation)
+`parse.py` dispatches by language: Python doctests, Rust rustdoc doctests; every other language
+returns source + an explicit note. Extensible registry.
+
+### Verification
+`verify_stdio.py` asserts the multi-language contract over stdio (binary search fetched across ≥8
+languages, `compare()` across ≥3). `verify_language.py` checks one language end-to-end. A 24-agent
+adversarial sweep + completeness critic confirmed 22/24 clean; the two flags were a verifier
+artifact (Swift space-encoding) and an upstream `DIRECTORY.md` typo (Fortran) — neither a product
+bug. One real fix shipped: `github_url`/fetch now percent-encode paths (`encode_path`) so URLs with
+spaces/leading-slashes are browser-safe.
+
+### Known limitations
+- Categories for SPM-structured repos (Swift) include some source-dir noise — cosmetic.
+- We faithfully parse upstream `DIRECTORY.md`; a broken upstream link (e.g. one Fortran entry) 404s
+  on fetch by design rather than being silently dropped.
 </content>
 </invoke>

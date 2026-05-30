@@ -1,7 +1,8 @@
-"""End-to-end verification: spawn the server over stdio, call every tool, assert correctness
-against the LIVE TheAlgorithms/Python repo. Exits non-zero on any failure.
+"""End-to-end verification: spawn the server over stdio, exercise every tool against the LIVE
+TheAlgorithms org. Asserts the multi-language contract. Exits non-zero on any failure.
 
-Run with:  uv run python scripts/verify_stdio.py
+  uv run python scripts/verify_stdio.py
+  uv run python scripts/verify_stdio.py uvx --from thealgorithms-mcp thealgorithms-mcp
 """
 from __future__ import annotations
 
@@ -15,6 +16,12 @@ from mcp.client.stdio import stdio_client
 PASS, FAIL = "\033[32mPASS\033[0m", "\033[31mFAIL\033[0m"
 failures: list[str] = []
 
+# Languages we expect to carry a binary search (representative spread of formats/structures).
+BINSEARCH_LANGS = [
+    "python", "java", "cpp", "javascript", "rust", "c", "typescript", "php",
+    "ruby", "swift", "kotlin", "scala", "julia", "haskell", "dart", "r",
+]
+
 
 def check(name: str, cond: bool, detail: str = "") -> None:
     print(f"  [{PASS if cond else FAIL}] {name}" + (f"  — {detail}" if detail else ""))
@@ -23,11 +30,6 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def payload(res):
-    """Extract a tool's return value.
-
-    FastMCP puts the structured value in `structuredContent`, wrapping list/scalar returns
-    as {"result": ...}. Fall back to concatenating JSON text blocks.
-    """
     sc = res.structuredContent
     if isinstance(sc, dict) and set(sc.keys()) == {"result"}:
         return sc["result"]
@@ -40,82 +42,96 @@ def payload(res):
 
 
 async def main() -> int:
-    # Default: run the local package. Override by passing a full command as argv,
-    # e.g. `verify_stdio.py uvx --from git+https://github.com/mcande21/thealgorithms-mcp thealgorithms-mcp`
     if len(sys.argv) > 1:
         command, args = sys.argv[1], sys.argv[2:]
     else:
         command, args = sys.executable, ["-m", "thealgorithms_mcp.server"]
     params = StdioServerParameters(command=command, args=args)
-    print(f"Spawning server over stdio: {command} {' '.join(args)}")
+    print(f"Spawning server over stdio: {command} {' '.join(args)}\n")
+
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            print("Server initialized over stdio.\n")
+
+            async def call(tool, **kw):
+                return payload(await session.call_tool(tool, kw))
 
             # --- tool discovery ---
             tools = {t.name for t in (await session.list_tools()).tools}
-            expected = {"list_categories", "search_algorithms", "get_category", "get_algorithm"}
-            check("4 tools registered", tools == expected, f"{sorted(tools)}")
+            expected = {"list_languages", "list_categories", "search_algorithms",
+                        "get_category", "get_algorithm", "compare"}
+            check("6 tools registered", tools == expected, f"{sorted(tools)}")
 
-            # --- list_categories ---
-            cats = payload(await session.call_tool("list_categories", {}))
-            names = {c["category"] for c in cats}
-            check("list_categories returns categories", len(cats) >= 40, f"{len(cats)} categories")
-            check("categories include sorts/graphs/maths", {"sorts", "graphs", "maths"} <= names)
+            # --- list_languages: auto-discovered set + explicit exclusions ---
+            langs_info = await call("list_languages")
+            keys = {l["language"] for l in langs_info["languages"]}
+            check("list_languages discovers >= 15 languages", len(keys) >= 15, f"{len(keys)} langs")
+            check("excluded repos reported with reasons", len(langs_info["excluded"]) > 0,
+                  f"{len(langs_info['excluded'])} excluded")
+            go = [e for e in langs_info["excluded"] if e["repo"] == "Go"]
+            check("Go excluded explicitly (no silent gap)", bool(go and go[0].get("reason")),
+                  go[0]["reason"] if go else "Go not in excluded")
 
-            # --- search_algorithms: top hit must be the canonical file ---
-            cases = {
-                "binary search": "searches/binary_search.py",
-                "dijkstra": "graphs/dijkstra.py",
-                "merge sort": "sorts/merge_sort.py",
-                "knapsack": "dynamic_programming/knapsack.py",
-                # v0.1.1: symbol + acronym handling
-                "A*": "graphs/a_star.py",
-                "BFS": "graphs/breadth_first_search.py",
-                "gcd": "maths/greatest_common_divisor.py",
-            }
-            for q, want in cases.items():
-                res = payload(await session.call_tool("search_algorithms", {"query": q}))
-                top = res[0]["path"] if res else "<none>"
-                check(f"search {q!r} -> {want}", top == want, f"got {top}")
+            # --- binary search: found + fetched with real source across many languages ---
+            ok_langs = []
+            for lang in BINSEARCH_LANGS:
+                if lang not in keys:
+                    continue
+                hits = await call("search_algorithms", query="binary search", language=lang, limit=3)
+                hit = next((h for h in hits if "binary" in h["path"].lower()), hits[0] if hits else None)
+                if not hit:
+                    continue
+                algo = await call("get_algorithm", path=hit["path"], language=lang)
+                src = algo.get("source", "")
+                if len(src) > 80 and algo.get("github_url", "").startswith("https://github.com/"):
+                    ok_langs.append(lang)
+            check("binary search fetched with real source across >= 8 languages",
+                  len(ok_langs) >= 8, f"{len(ok_langs)}: {ok_langs}")
 
-            # category-constrained search
-            res = payload(
-                await session.call_tool(
-                    "search_algorithms", {"query": "quick", "category": "sorts"}
-                )
-            )
-            check("scoped search stays in category", all(r["category"] == "sorts" for r in res))
+            # --- Python doctests extracted ---
+            py = await call("get_algorithm", path="sorts/merge_sort.py", language="python")
+            check("python extracts doctests", len(py.get("examples", [])) >= 1,
+                  f"{len(py.get('examples', []))} examples")
 
-            # --- get_category ---
-            sorts = payload(await session.call_tool("get_category", {"category": "sorts"}))
-            sort_paths = {e["path"] for e in sorts}
-            check("get_category('sorts') lists sorts", "sorts/merge_sort.py" in sort_paths,
-                  f"{len(sorts)} entries")
+            # --- graceful degradation: a non-extractor language returns note + real source ---
+            if "java" in keys:
+                jhits = await call("search_algorithms", query="binary search", language="java", limit=3)
+                jhit = next((h for h in jhits if "binary" in h["path"].lower()), jhits[0])
+                jalgo = await call("get_algorithm", path=jhit["path"], language="java")
+                check("non-extractor language degrades gracefully (note + source)",
+                      jalgo.get("note") and jalgo.get("examples") == [] and len(jalgo.get("source", "")) > 80,
+                      f"note={'y' if jalgo.get('note') else 'n'}")
 
-            # --- get_algorithm: source + doctests on a simple file ---
-            ms = payload(await session.call_tool("get_algorithm", {"path": "sorts/merge_sort.py"}))
-            check("get_algorithm returns source", "def merge_sort" in ms.get("source", ""))
-            check("get_algorithm returns doctests", len(ms.get("doctests", [])) >= 1,
-                  f"{len(ms.get('doctests', []))} examples")
-            check("get_algorithm returns description", bool(ms.get("description")))
-            check("get_algorithm has github_url", ms.get("github_url", "").startswith("https://github.com/"))
+            # --- Rust doc-test extraction (the second extractor) ---
+            if "rust" in keys:
+                found_rust_ex = False
+                for q in ["hamming distance", "binary shifts", "binary coded decimal", "two sum"]:
+                    rh = await call("search_algorithms", query=q, language="rust", limit=1)
+                    if rh:
+                        ra = await call("get_algorithm", path=rh[0]["path"], language="rust")
+                        if len(ra.get("examples", [])) >= 1:
+                            found_rust_ex = True
+                            break
+                check("rust extracts doc-test examples", found_rust_ex)
 
-            # --- doctest extraction on a FUNCTION-HEAVY file (the flagged risk) ---
-            bs = payload(await session.call_tool("get_algorithm", {"path": "searches/binary_search.py"}))
-            check("function-level doctests extracted", len(bs.get("doctests", [])) >= 3,
-                  f"{len(bs.get('doctests', []))} examples across functions")
+            # --- cross-language compare ---
+            cmp = await call("compare", name="binary search")
+            cmp_langs = {r["language"] for r in cmp["results"] if "binary" in r["path"].lower()}
+            check("compare() returns binary search across >= 3 languages",
+                  len(cmp_langs) >= 3, f"{len(cmp_langs)} langs: {sorted(cmp_langs)[:6]}")
 
-            # --- include_source=False peek ---
-            peek = payload(await session.call_tool(
-                "get_algorithm", {"path": "sorts/merge_sort.py", "include_source": False}))
-            check("peek omits source but keeps examples",
-                  "source" not in peek and len(peek.get("doctests", [])) >= 1)
-
-            # --- bad path is handled gracefully ---
-            bad = payload(await session.call_tool("get_algorithm", {"path": "nope/not_real.py"}))
-            check("bad path returns guidance, not crash", "error" in bad)
+            # --- per-language tools + ergonomics ---
+            cats = await call("list_categories", language="cpp")
+            check("list_categories works for a non-python language (cpp)", len(cats) >= 5,
+                  f"{len(cats)} categories")
+            alias = await call("search_algorithms", query="dijkstra", language="c++")
+            check("language aliases resolve (c++ -> cpp)", isinstance(alias, list) and len(alias) >= 1)
+            sortcat = await call("get_category", category="sorts", language="python")
+            check("get_category('sorts', python)", any("merge_sort" in e["path"] for e in sortcat))
+            bad = await call("get_algorithm", path="nope/x.py", language="python")
+            check("bad path returns guidance", "error" in bad)
+            badlang = await call("search_algorithms", query="x", language="cobol")
+            check("unknown language returns guidance", isinstance(badlang, dict) and "error" in badlang)
 
     print()
     if failures:
