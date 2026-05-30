@@ -70,6 +70,10 @@ async def main() -> int:
                 "dijkstra": "graphs/dijkstra.py",
                 "merge sort": "sorts/merge_sort.py",
                 "knapsack": "dynamic_programming/knapsack.py",
+                # v0.1.1: symbol + acronym handling
+                "A*": "graphs/a_star.py",
+                "BFS": "graphs/breadth_first_search.py",
+                "gcd": "maths/greatest_common_divisor.py",
             }
             for q, want in cases.items():
                 res = payload(await session.call_tool("search_algorithms", {"query": q}))

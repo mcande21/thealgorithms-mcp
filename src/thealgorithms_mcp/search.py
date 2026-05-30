@@ -5,12 +5,19 @@ import re
 
 from rapidfuzz import fuzz
 
-_NORM_RE = re.compile(r"[\s_/]+")
+# Drop everything that isn't a letter or digit. '*' is mapped to "star" first so that
+# "A*" -> "a star" matches "A Star"; without this it collapses to a useless bare "a".
+_NORM_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _norm(s: str) -> str:
-    """Lowercase and collapse separators so 'merge_sort'/'Merge Sort' compare equal."""
-    return _NORM_RE.sub(" ", s.lower()).strip()
+    """Lowercase, expand '*'->star, and reduce all other punctuation/separators to spaces."""
+    return _NORM_RE.sub(" ", s.lower().replace("*", " star ")).strip()
+
+
+def _initialism(name_n: str) -> str:
+    """First letter of each word of a normalized name: 'breadth first search' -> 'bfs'."""
+    return "".join(w[0] for w in name_n.split(" ") if w)
 
 
 def search(entries: list[dict], query: str, category: str | None = None, limit: int = 10) -> list[dict]:
@@ -19,10 +26,14 @@ def search(entries: list[dict], query: str, category: str | None = None, limit: 
     Scoring rewards *tight* matches so exact intent wins over a superset:
       - exact normalized name match dominates ("merge sort" -> "Merge Sort", not "Iterative Merge Sort")
       - a substring hit is scaled by how much of the name it covers (tighter = higher)
+      - a short single-token query that equals an entry's initialism ("bfs" -> "Breadth First Search")
+        gets a strong boost — the lexical scorer can't bridge acronyms on its own. Restricted to
+        3-5 char queries because 2-letter initialisms collide across dozens of entries.
       - path matches count at half weight, so a name match always outranks an incidental path hit
     Returns [{name, category, path, score}] sorted desc.
     """
     qn = _norm(query)
+    is_acronym = qn.isalpha() and 3 <= len(qn) <= 5
     pool = entries if category is None else [e for e in entries if e["category"] == category]
 
     scored: list[tuple[float, dict]] = []
@@ -34,10 +45,12 @@ def search(entries: list[dict], query: str, category: str | None = None, limit: 
         path_score = fuzz.partial_ratio(qn, path_n) * 0.5
 
         bonus = 0.0
-        if qn == name_n:
+        if qn and qn == name_n:
             bonus = 100.0
         elif qn and qn in name_n:
             bonus = 30.0 * len(qn) / len(name_n)  # covers more of the name -> bigger bonus
+        if is_acronym and _initialism(name_n) == qn:
+            bonus = max(bonus, 90.0)  # acronym hit, but never beats an exact full-name match
 
         score = max(base, path_score) + bonus
         scored.append((score, e))
