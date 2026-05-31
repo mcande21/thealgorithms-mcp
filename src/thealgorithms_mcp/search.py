@@ -45,18 +45,18 @@ def search(entries: list[dict], query: str, category: str | None = None, limit: 
         base = fuzz.WRatio(qn, name_n)
         path_score = fuzz.partial_ratio(qn, path_n) * 0.5
 
-        # Coverage damping: for a multi-word query, a name that contains only a fraction of the
+        # Coverage damping: for a multi-word query, a name that contains *less than half* of the
         # query's words is a weak match riding on token/partial overlap (e.g. "Tree" vs "red black
-        # tree"). Damp the fuzzy score by how many query words the name actually contains — checked
-        # against the name with separators removed, so a CamelCase concatenation like "BubbleSort"
-        # still fully covers "bubble sort" and is NOT penalized.
+        # tree" = 1 of 3). Damp it. The < 0.5 cutoff is deliberate: a 2-word query matched by a
+        # 1-word abbreviation ("Bubble" for "bubble sort" = 1 of 2) is a legitimate hit, so it is
+        # NOT penalized. Coverage is checked against the name with separators removed, so a
+        # CamelCase concatenation ("BubbleSort" covers "bubble sort") also scores full coverage.
         fuzzy = max(base, path_score)
         if len(q_tokens) > 1:
             compact = name_n.replace(" ", "")
-            covered = sum(1 for t in q_tokens if t in compact)
-            coverage = covered / len(q_tokens)
-            if coverage < 1.0:
-                fuzzy *= 0.5 + 0.5 * coverage  # full coverage -> 1.0; 1-of-3 -> 0.67
+            coverage = sum(1 for t in q_tokens if t in compact) / len(q_tokens)
+            if coverage < 0.5:
+                fuzzy *= 0.4 + 0.6 * coverage  # 1-of-3 -> ~0.6; 1-of-4 -> 0.55; 0 -> 0.4
 
         bonus = 0.0
         if qn and qn == name_n:
