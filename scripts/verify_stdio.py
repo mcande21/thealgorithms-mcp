@@ -59,8 +59,8 @@ async def main() -> int:
             # --- tool discovery ---
             tools = {t.name for t in (await session.list_tools()).tools}
             expected = {"list_languages", "list_categories", "search_algorithms",
-                        "get_category", "get_algorithm", "compare"}
-            check("6 tools registered", tools == expected, f"{sorted(tools)}")
+                        "get_category", "get_algorithm", "compare", "suggest"}
+            check("7 tools registered", tools == expected, f"{sorted(tools)}")
 
             # --- list_languages: auto-discovered set + explicit exclusions ---
             langs_info = await call("list_languages")
@@ -114,11 +114,32 @@ async def main() -> int:
                             break
                 check("rust extracts doc-test examples", found_rust_ex)
 
-            # --- cross-language compare ---
+            # --- cross-language compare (precision: only real matches) ---
             cmp = await call("compare", name="binary search")
-            cmp_langs = {r["language"] for r in cmp["results"] if "binary" in r["path"].lower()}
-            check("compare() returns binary search across >= 3 languages",
-                  len(cmp_langs) >= 3, f"{len(cmp_langs)} langs: {sorted(cmp_langs)[:6]}")
+            check("compare() finds binary search in >= 8 languages",
+                  len(cmp["found_in"]) >= 8, f"found_in={len(cmp['found_in'])}")
+            check("compare() matches all clear the score threshold",
+                  all(mt["score"] >= cmp["min_score"] for mt in cmp["matches"]))
+            # an algorithm many languages lack -> missing_in must be populated (the precision fix)
+            dij = await call("compare", name="dijkstra")
+            check("compare() reports missing_in for sparse algorithms",
+                  len(dij["missing_in"]) > 0 and len(dij["found_in"]) >= 8,
+                  f"found={len(dij['found_in'])} missing={len(dij['missing_in'])}")
+
+            # --- Trie autocomplete ---
+            sug = await call("suggest", prefix="dij", language="python")
+            check("suggest('dij') returns Dijkstra", any("dijkstra" in s["name"].lower() for s in sug),
+                  f"{[s['name'] for s in sug][:4]}")
+            sug2 = await call("suggest", prefix="merge", language="python")
+
+            def _matches_prefix(name: str, pfx: str) -> bool:
+                return name.lower().startswith(pfx) or any(w.startswith(pfx) for w in name.lower().split())
+
+            check("suggest results actually start with the prefix",
+                  bool(sug2) and all(_matches_prefix(s["name"], "merge") for s in sug2))
+            sug3 = await call("suggest", prefix="dij", language="rust")
+            check("suggest works for a non-python language (rust)",
+                  any("dijkstra" in s["name"].lower() for s in sug3))
 
             # --- per-language tools + ergonomics ---
             cats = await call("list_categories", language="cpp")

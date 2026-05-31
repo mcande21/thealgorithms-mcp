@@ -26,7 +26,8 @@ See [`DESIGN.md`](DESIGN.md).
 | `search_algorithms(query, language='python', category?, limit=10)` | Ranked `{name, category, path, score}` |
 | `get_category(category, language='python')` | Every algorithm in a category |
 | `get_algorithm(path, language='python', include_source=True)` | Source + extracted examples |
-| `compare(name, languages?, limit_per_language=1)` | The same algorithm across languages |
+| `compare(name, languages?, min_score=90, limit_per_language=1)` | Real matches across languages + `missing_in` |
+| `suggest(prefix, language='python', limit=10)` | Trie-backed name autocomplete (`dij` → Dijkstra) |
 
 `language` accepts names or aliases (`cpp`/`c++`, `js`, `ts`, …). Typical flow:
 `search_algorithms("dijkstra", language="rust")` → `get_algorithm("src/graph/dijkstra.rs", language="rust")`.

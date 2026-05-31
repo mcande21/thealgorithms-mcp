@@ -186,5 +186,19 @@ spaces/leading-slashes are browser-safe.
 - Categories for SPM-structured repos (Swift) include some source-dir noise — cosmetic.
 - We faithfully parse upstream `DIRECTORY.md`; a broken upstream link (e.g. one Fortran entry) 404s
   on fetch by design rather than being silently dropped.
+
+---
+
+## v0.3.0 — Self-improvement via dogfooding (2026-05-30)
+
+Two changes found by *using* the tool to query TheAlgorithms for ways to improve itself:
+
+- **`compare()` precision.** Dogfooding `compare("dijkstra")` returned a row for all 24 languages —
+  including 11 that don't implement it (scored ~50 noise). Now filtered to `score >= min_score`
+  (default 90); real matches go in `matches`/`found_in`, languages without one in `missing_in`.
+  `compare("dijkstra")` → found in 11, missing in 13.
+- **`suggest()` autocomplete.** New Trie-backed typeahead (`autocomplete.py`), modeled on the repo's
+  own `data_structures/trie/trie.py` — the MCP that indexes TheAlgorithms is now powered by one of
+  its algorithms. Indexes each name + its words; O(prefix-length) lookup; built once per language.
 </content>
 </invoke>

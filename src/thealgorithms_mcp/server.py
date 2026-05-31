@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from . import discovery
+from . import autocomplete, discovery
 from . import fetch
 from . import index as idx
 from . import parse, search
@@ -121,30 +121,36 @@ def get_algorithm(
 
 @mcp.tool()
 def compare(
-    name: str, languages: list[str] | None = None, limit_per_language: int = 1
+    name: str,
+    languages: list[str] | None = None,
+    min_score: float = 90.0,
+    limit_per_language: int = 1,
 ) -> dict:
-    """Find the same algorithm across languages. Returns the top match per language.
+    """Find the same algorithm across languages — returns only REAL matches.
 
-    `languages` defaults to all indexed languages; pass a subset (names or aliases) to narrow.
-    Each result: {language, name, category, path, github_url, score}.
+    A per-language search scores 100-200 for a genuine match and well below for "nearest unrelated
+    thing", so results are filtered to score >= `min_score` (default 90). Languages with no real
+    match are listed in `missing_in`, so you can see at a glance which languages implement an
+    algorithm and which don't. `languages` defaults to all indexed; pass a subset to narrow.
     """
     m = discovery.discover()
     if languages:
-        keys = []
-        for lang in languages:
-            k = discovery.resolve_language(lang)
-            if k:
-                keys.append(k)
+        keys = [k for lang in languages if (k := discovery.resolve_language(lang))]
         if not keys:
             return {"error": "None of the requested languages are indexed.", "requested": languages}
     else:
         keys = sorted(m["languages"])
 
-    results: list[dict] = []
+    matches: list[dict] = []
+    missing_in: list[str] = []
     for key in keys:
         hits = search.search(idx.load_index(key), name, limit=max(1, limit_per_language))
-        for h in hits[:limit_per_language]:
-            results.append(
+        kept = [h for h in hits[:limit_per_language] if h["score"] >= min_score]
+        if not kept:
+            missing_in.append(key)
+            continue
+        for h in kept:
+            matches.append(
                 {
                     "language": key,
                     "name": h["name"],
@@ -154,7 +160,27 @@ def compare(
                     "score": h["score"],
                 }
             )
-    return {"query": name, "languages_searched": len(keys), "results": results}
+    return {
+        "query": name,
+        "min_score": min_score,
+        "languages_searched": len(keys),
+        "found_in": sorted({mt["language"] for mt in matches}),
+        "missing_in": missing_in,
+        "matches": matches,
+    }
+
+
+@mcp.tool()
+def suggest(prefix: str, language: str = DEFAULT_LANGUAGE, limit: int = 10) -> list[dict] | dict:
+    """Autocomplete algorithm names by prefix (Trie-backed typeahead).
+
+    Matches the start of the name or any word: 'dij' -> Dijkstra, 'search' -> Binary Search.
+    Returns up to `limit` {name, category, path}. Fast O(prefix-length) lookup.
+    """
+    key, err = _resolve(language)
+    if err:
+        return err
+    return autocomplete.suggest(key, idx.load_index(key), prefix, limit)
 
 
 def main() -> None:
