@@ -4,7 +4,7 @@ Run: uv run python scripts/search_probe.py
 from thealgorithms_mcp import index as idx
 from thealgorithms_mcp.search import search
 
-entries = idx.load_index()
+entries = idx.load_index("python")
 
 # (query, expected substring in the IDEAL top path) — expected is best-guess, may be None if unsure
 CASES = [

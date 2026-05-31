@@ -88,6 +88,15 @@ async def main() -> int:
             check("binary search fetched with real source across >= 8 languages",
                   len(ok_langs) >= 8, f"{len(ok_langs)}: {ok_langs}")
 
+            # symbol + acronym search guards (regressions the 0.2.0 rewrite had dropped)
+            astar = await call("search_algorithms", query="A*", language="python", limit=1)
+            check("search 'A*' -> a_star (symbol handling)",
+                  bool(astar) and "a_star" in astar[0]["path"], astar[0]["path"] if astar else "none")
+            gcd = await call("search_algorithms", query="gcd", language="python", limit=1)
+            check("search 'gcd' -> greatest_common_divisor (acronym)",
+                  bool(gcd) and "greatest_common_divisor" in gcd[0]["path"],
+                  gcd[0]["path"] if gcd else "none")
+
             # --- Python doctests extracted ---
             py = await call("get_algorithm", path="sorts/merge_sort.py", language="python")
             check("python extracts doctests", len(py.get("examples", [])) >= 1,
@@ -125,6 +134,11 @@ async def main() -> int:
             check("compare() reports missing_in for sparse algorithms",
                   len(dij["missing_in"]) > 0 and len(dij["found_in"]) >= 8,
                   f"found={len(dij['found_in'])} missing={len(dij['missing_in'])}")
+            # coverage damping: a generic 'Tree' must NOT count as a 'red black tree' match
+            rbt = await call("compare", name="red black tree")
+            check("compare() coverage-damps generic names (no 'Tree' as red-black-tree)",
+                  "python" in rbt["found_in"] and "cpp" not in rbt["found_in"] and "swift" not in rbt["found_in"],
+                  f"found_in={rbt['found_in']}")
 
             # --- Trie autocomplete ---
             sug = await call("suggest", prefix="dij", language="python")
